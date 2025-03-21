@@ -42,7 +42,7 @@ import {
 } from "azure-pipelines-task-lib/task";
 import { basename, join, normalize, parse } from "path";
 import { readFileSync } from "fs";
-import { AccessToken, ClientSecretCredential } from "@azure/identity";
+import { AccessToken, ClientSecretCredential, DefaultAzureCredential, ManagedIdentityCredential } from "@azure/identity";
 import { AzureServiceClient } from "@azure/ms-rest-azure-js";
 import { HttpOperationResponse, RequestPrepareOptions, TokenCredentials } from "@azure/ms-rest-js";
 
@@ -63,17 +63,32 @@ function loginAzure(
     audience: string
 ): Promise<AzureServiceClient> {
     return new Promise<AzureServiceClient>((resolve, reject) => {
-        if (scheme.toLocaleLowerCase() === "managedserviceidentity") {
-            // loginWithAppServiceMSI()
-            //     .then((credentials: MSIAppServiceTokenCredentials) => {
-            //         resolve(new AzureServiceClient(credentials, {}));
-            //     })
-            //     .catch((err: Error) => {
-            //         if (err) {
-            //             error(loc("Generic_LoginAzure", err.message));
-            //             reject(loc("Generic_LoginAzure", err.message));
-            //         }
-            //     });
+        if (scheme.toLowerCase() === "managedserviceidentity") {
+            // Use Managed Identity credential
+            const credential = new ManagedIdentityCredential();
+            credential
+                .getToken(audience)
+                .then((accessToken: AccessToken) => {
+                    const token = new TokenCredentials(accessToken.token);
+                    resolve(new AzureServiceClient(token));
+                })
+                .catch((err: Error) => {
+                    error(loc("Generic_LoginAzure", err.message));
+                    reject(loc("Generic_LoginAzure", err.message));
+                });
+        } else if (scheme.toLowerCase() === "federated") {
+            // Use DefaultAzureCredential which supports federated identities
+            const credential = new DefaultAzureCredential();
+            credential
+                .getToken(audience)
+                .then((accessToken: AccessToken) => {
+                    const token = new TokenCredentials(accessToken.token);
+                    resolve(new AzureServiceClient(token));
+                })
+                .catch((err: Error) => {
+                    error(loc("Generic_LoginAzure", err.message));
+                    reject(loc("Generic_LoginAzure", err.message));
+                });
         } else {
             const credential = new ClientSecretCredential(tenantID, clientId, key, {
                 authorityHost: authorityHostUrl,
